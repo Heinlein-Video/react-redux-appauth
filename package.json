@@ -1,0 +1,54 @@
+{
+  "name": "react-redux-appauth",
+  "version": "0.1.0",
+  "description": "A React Wrapper around @openid/appauth-js for use with redux",
+  "main": "build/src/index.js",
+  "author": "Rudi Floren (r.floren@heinlein-video.de)",
+  "license": "MIT",
+  "private": false,
+  "devDependencies": {
+    "@reduxjs/toolkit": "^1.6.0",
+    "@types/react": "^17.0.11",
+    "react-redux": "^7.2.4",
+    "typescript": "^4.3.4"
+  },
+  "peerDependencies": {
+    "@reduxjs/toolkit": "^1.6.0",
+    "react": "^17.0.2",
+    "react-redux": "^7.2.4",
+    "redux": "^4.1.0"
+  },
+  "dependencies": {
+    "@openid/appauth": "^1.3.1",
+    "@types/lodash": "^4.14.170",
+    "lodash": "^4.17.21"
+  },
+  "files": [
+    "/build"
+  ],
+  "scripts": {
+    "start": "node build/index.js",
+    "build": "tsc -p tsconfig.release.json",
+    "test": "jest --coverage src --passWithNoTests",
+    "lint": "eslint . --ext .ts,.tsx"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/__fixtures__/",
+      "<rootDir>/build"
+    ],
+    "coveragePathIgnorePatterns": [
+      "/node_modules/"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "branches": 80,
+        "functions": 80,
+        "lines": 80,
+        "statements": -10
+      }
+    }
+  }
+}
