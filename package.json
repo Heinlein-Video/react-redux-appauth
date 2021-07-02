@@ -1,6 +1,6 @@
 {
   "name": "@r.floren/react-redux-appauth",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A React Wrapper around @openid/appauth-js for use with redux",
   "main": "build/src/index.js",
   "author": "Rudi Floren (r.floren@heinlein-video.de)",
