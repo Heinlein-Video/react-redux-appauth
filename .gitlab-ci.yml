@@ -14,13 +14,14 @@ stages:
 publish:
   stage: release
   before_script:
-    - npm install -g semantic-release @semantic-release/git @semantic-release/gitlab @semantic-release/npm
+    - yarn global add semantic-release @semantic-release/git @semantic-release/gitlab @semantic-release/npm
   script:
     - |
       {
         echo "@${CI_PROJECT_ROOT_NAMESPACE}:registry=${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/npm/"
         echo "${CI_API_V4_URL#https?}/projects/${CI_PROJECT_ID}/packages/npm/:_authToken=\${CI_JOB_TOKEN}"
       } | tee --append .npmrc
+    - yarn install
     - semantic-release
   rules:
       - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
