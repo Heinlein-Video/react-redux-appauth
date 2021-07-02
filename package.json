@@ -1,5 +1,5 @@
 {
-  "name": "react-redux-appauth",
+  "name": "@r.floren/react-redux-appauth",
   "version": "0.1.0",
   "description": "A React Wrapper around @openid/appauth-js for use with redux",
   "main": "build/src/index.js",
@@ -30,7 +30,11 @@
     "start": "node build/index.js",
     "build": "tsc -p tsconfig.release.json",
     "test": "jest --coverage src --passWithNoTests",
-    "lint": "eslint . --ext .ts,.tsx"
+    "lint": "eslint . --ext .ts,.tsx",
+    "prepack": "yarn build"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "jest": {
     "preset": "ts-jest",
