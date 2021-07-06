@@ -3,25 +3,28 @@ import {
   AuthorizationNotifier,
   AuthorizationRequest,
   AuthorizationRequestHandler,
+  AuthorizationRequestResponse,
   AuthorizationServiceConfiguration,
   BaseTokenRequestHandler,
+  DefaultCrypto,
   FetchRequestor,
   GRANT_TYPE_AUTHORIZATION_CODE,
   GRANT_TYPE_REFRESH_TOKEN,
+  LocalStorageBackend,
   nowInSeconds,
   RedirectRequestHandler,
   StringMap,
   TokenError,
   TokenErrorJson,
   TokenRequest,
-  TokenRequestHandler,
   TokenResponse,
   TokenResponseJson,
-  TokenType,
-} from "@openid/appauth";
-import { IResponse } from "./AuthSlice";
-import { PopupWindow } from "./helper/PopupHelper";
-import { UnixTimeStamp } from "./util";
+} from '@openid/appauth';
+import { AuthProviderSignInProps, AuthProviderSignOutProps } from './AuthInterface';
+import { IResponse } from './AuthSlice';
+import { PopupWindow } from './helper/PopupHelper';
+import { PopupRequestHandler } from './helper/PopupRequestHandler';
+import { UnixTimeStamp } from './util';
 
 export enum EventType {
   EXPIRED,
@@ -34,11 +37,12 @@ export interface AuthSettings {
   clientId: string;
   redirectUri: string;
   authority: string;
-  silentRedirectUrl?: string;
+  silentRedirectUri?: string;
   extras?: StringMap;
   scope: string;
   silentRequestTimeout?: number;
-  popupRedirectUrl?: string;
+  popupRedirectUri?: string;
+  signoutRedirectUri?: string;
 }
 
 export class AuthAdapter {
@@ -50,22 +54,33 @@ export class AuthAdapter {
 
   private _refreshToken: string | undefined;
   private _accessTokenResponse: ExtendedOidcTokenResponse | undefined;
-  private _timerHandle: number;
+  private _timerHandle: ReturnType<typeof setInterval>;
 
   private _settings: AuthSettings;
+  private _crypto = new DefaultCrypto();
+  private _localStorage = new LocalStorageBackend();
 
   private _handlers: Array<
     (type: EventType, token_response: ExtendedOidcTokenResponse) => void
   > = [];
+  private _popupAuthorizationHandler: PopupRequestHandler;
+  private _popupNotifier: AuthorizationNotifier;
 
   constructor(settings: AuthSettings) {
     this._notifier = new AuthorizationNotifier();
-    this._authorizationHandler = new RedirectRequestHandler();
-    let fetchRequestor = new FetchRequestor();
+    this._popupNotifier = new AuthorizationNotifier();
+    this._authorizationHandler = new RedirectRequestHandler(this._localStorage);
+    this._popupAuthorizationHandler = new PopupRequestHandler(
+      this._localStorage,
+    );
+    const fetchRequestor = new FetchRequestor();
     this._tokenHandler = new ExtendedTokenRequestHandler(fetchRequestor);
 
     // set notifier to deliver responses
     this._authorizationHandler.setAuthorizationNotifier(this._notifier);
+    this._popupAuthorizationHandler.setAuthorizationNotifier(
+      this._popupNotifier,
+    );
 
     this._timerHandle = setInterval(() => this.checkExpire(), TIMER_DURATION);
 
@@ -74,21 +89,25 @@ export class AuthAdapter {
     // set a listener to listen for authorization responses
     // make refresh and access token requests.
     this._notifier.setAuthorizationListener((request, response, error) => {
-      console.log("Authorization request complete ", request, response, error);
+      console.log('Authorization request complete ', request, response, error);
       if (response) {
         let codeVerifier: string | undefined;
         if (request.internal && request.internal.code_verifier) {
           codeVerifier = request.internal.code_verifier;
         }
         this.finishAuthorization(response.code, codeVerifier)
-          .then((result) => this.refreshTokens())
+          .then(() => this.refreshTokens())
           .then(() => {
             this._handlers.forEach((fn) => {
               fn(EventType.RENEWED, this._accessTokenResponse!);
             });
-            console.log("All Done.");
+            console.log('All Done.');
           });
       }
+    });
+
+    this._popupNotifier.setAuthorizationListener((request, response, error) => {
+      PopupWindow.notifyOpener(request, response, error);
     });
   }
 
@@ -96,7 +115,7 @@ export class AuthAdapter {
    * Check if one of the two tokens is about to expire.
    * For now we always auto renew the token
    */
-  checkExpire() {
+  checkExpire(): void {
     if (this._accessTokenResponse) {
       if (!this._accessTokenResponse.isValid()) {
         this.refreshTokens().then(() => {
@@ -116,17 +135,17 @@ export class AuthAdapter {
   }
 
   addHandler(
-    fn: (type: EventType, token_response: ExtendedOidcTokenResponse) => void
-  ) {
+    fn: (type: EventType, token_response: ExtendedOidcTokenResponse) => void,
+  ): void {
     this._handlers.push(fn);
   }
 
   removeHandler(
     fnToRemove: (
       type: EventType,
-      token_response: ExtendedOidcTokenResponse
-    ) => void
-  ) {
+      token_response: ExtendedOidcTokenResponse,
+    ) => void,
+  ): void {
     this._handlers = this._handlers.filter((fn) => {
       if (fn != fnToRemove) return fn;
     });
@@ -136,43 +155,19 @@ export class AuthAdapter {
     const fetcher = new FetchRequestor();
     return AuthorizationServiceConfiguration.fetchFromIssuer(
       this.authority,
-      fetcher
+      fetcher,
     ).then((response) => {
-      console.log("Fetched service configuration", response);
+      console.log('Fetched service configuration', response);
       this._configuration = response;
     });
   }
 
-  get clientId() {
+  get clientId(): string {
     return this._settings.clientId;
   }
 
-  get authority() {
+  get authority(): string {
     return this._settings.authority;
-  }
-
-  // Todo Type Args
-  private startSignin(args?: { extras?: {} }): Promise<void> {
-    console.log("Starting signIn")
-    // create a request
-    let request = new AuthorizationRequest({
-      client_id: this.clientId,
-      redirect_uri: this._settings.redirectUri,
-      scope: this._settings.scope,
-      response_type: AuthorizationRequest.RESPONSE_TYPE_CODE,
-      state: undefined,
-      extras: args && args.extras ? args.extras : {},
-    });
-
-    if (this._configuration) {
-      this._authorizationHandler.performAuthorizationRequest(
-        this._configuration,
-        request
-      );
-      return Promise.resolve();
-    } else {
-      return Promise.reject("Missing configuration");
-    }
   }
 
   /**
@@ -183,11 +178,12 @@ export class AuthAdapter {
    */
   private finishAuthorization(
     code: string,
-    codeVerifier: string | undefined
+    codeVerifier: string | undefined,
+    popup = false,
   ): Promise<void> {
     if (!this._configuration) {
-      console.log("Unknown service configuration");
-      return Promise.reject("Unknown service configuration");
+      console.log('Unknown service configuration');
+      return Promise.reject('Unknown service configuration');
     }
 
     const extras: StringMap = {};
@@ -197,9 +193,11 @@ export class AuthAdapter {
     }
 
     // use the code to make the token request.
-    let request = new TokenRequest({
+    const request = new TokenRequest({
       client_id: this.clientId,
-      redirect_uri: this._settings.redirectUri,
+      redirect_uri: popup
+        ? this._settings.popupRedirectUri!
+        : this._settings.redirectUri,
       grant_type: GRANT_TYPE_AUTHORIZATION_CODE,
       code: code,
       refresh_token: undefined,
@@ -209,6 +207,7 @@ export class AuthAdapter {
     return this._tokenHandler
       .performTokenRequest(this._configuration, request)
       .then((response) => {
+        console.log(`Access Token is ${response.accessToken}`);
         console.log(`Refresh Token is ${response.refreshToken}`);
         this._refreshToken = response.refreshToken;
         this._accessTokenResponse = response;
@@ -223,19 +222,19 @@ export class AuthAdapter {
    */
   refreshTokens(): Promise<string> {
     if (!this._configuration) {
-      console.log("Unknown service configuration");
-      return Promise.reject("Unknown service configuration");
+      console.log('Unknown service configuration');
+      return Promise.reject('Unknown service configuration');
     }
     if (!this._refreshToken) {
-      console.log("Missing refreshToken.");
-      return Promise.resolve("Missing refreshToken.");
+      console.log('Missing refreshToken.');
+      return Promise.resolve('Missing refreshToken.');
     }
     if (this._accessTokenResponse && this._accessTokenResponse.isValid()) {
       // do nothing
       return Promise.resolve(this._accessTokenResponse.accessToken);
     }
 
-    let request = new TokenRequest({
+    const request = new TokenRequest({
       client_id: this.clientId,
       redirect_uri: this._settings.redirectUri,
       grant_type: GRANT_TYPE_REFRESH_TOKEN,
@@ -254,58 +253,164 @@ export class AuthAdapter {
   }
 
   /**
-   *
+   * Check if we have a current login attempt and try to complete it depending on the type
    * @returns
    */
   completeAuthorizationRequestIfPossible(): Promise<void> {
-    return this._authorizationHandler.completeAuthorizationRequestIfPossible();
+    console.log('auth if possible');
+    // Check if we have a current login attempt.
+    return this._localStorage
+      .getItem('appauth_current_authorization_request')
+      .then((handle) => {
+        console.log(handle);
+        if (handle) {
+          return this._localStorage
+            .getItem(`${handle}_appauth_authorization_request`)
+            .then((result) => JSON.parse(result!))
+            .then((json) => new AuthorizationRequest(json))
+            .then((request) => {
+              console.log(request);
+              if (request.internal && request.internal.request_type) {
+                switch (request.internal.request_type) {
+                  default:
+                  case 'redirect':
+                    return this._authorizationHandler.completeAuthorizationRequestIfPossible();
+                  case 'popup':
+                    console.log('Calling popup completeAuth');
+                    return this._popupAuthorizationHandler.completeAuthorizationRequestIfPossible();
+                }
+              } else {
+                return this._authorizationHandler.completeAuthorizationRequestIfPossible();
+              }
+            });
+        }
+      });
   }
 
   // todo type args
-  signinRedirect(args?: {extras?: {response_mode?: string}}) {
+  signInRedirect(args?: { extras?: { response_mode?: string } }): Promise<void> {
     if (!args) {
-      args = {extras: {response_mode: "fragment"}}
+      args = { extras: { response_mode: 'fragment' } };
     }
     if (args && !args.extras) {
-      args.extras = {response_mode: "fragment"}
+      args.extras = { response_mode: 'fragment' };
     }
-    this.startSignin(args);
+
+    const internal = {
+      request_type: 'redirect',
+    };
+
+    console.log('Starting signIn');
+    // create a request
+    const request = new AuthorizationRequest({
+      client_id: this.clientId,
+      redirect_uri: this._settings.redirectUri,
+      scope: this._settings.scope,
+      response_type: AuthorizationRequest.RESPONSE_TYPE_CODE,
+      state: undefined,
+      extras: args.extras,
+      internal: internal,
+    });
+
+    // Set Code Verifier for PKCE
+    request.setupCodeVerifier();
+
+    if (this._configuration) {
+      this._authorizationHandler.performAuthorizationRequest(
+        this._configuration,
+        request,
+      );
+      return Promise.resolve();
+    } else {
+      return Promise.reject('Missing configuration');
+    }
   }
+
   // todo type args
-  signinSilent(args: any) {
+  signInSilent(args: AuthProviderSignInProps): void {
     if (this._refreshToken) {
       this.refreshTokens();
     } else {
-      this.signinSilentIFrame();
+      this.signInSilentIFrame(args);
     }
   }
 
   // todo type args
-  signinPopup(args: any) {
-    let url =
-      args.redirect_uri ||
-      this._settings.popupRedirectUrl ||
-      this._settings.redirectUri;
+  signInPopup(args: AuthProviderSignInProps): Promise<void> {
+    if (!args) {
+      args = { extras: { response_mode: 'fragment' } };
+    }
+    if (args && !args.extras) {
+      args.extras = { response_mode: 'fragment' };
+    }
+
+    const internal = {
+      request_type: 'popup',
+    };
+
+    const request = new AuthorizationRequest({
+      client_id: this.clientId,
+      redirect_uri:
+        this._settings.popupRedirectUri || this._settings.redirectUri,
+      scope: this._settings.scope,
+      response_type: AuthorizationRequest.RESPONSE_TYPE_CODE,
+      state: undefined,
+      extras: args && args.extras ? args.extras : {},
+      internal: internal,
+    });
+
+    // Set Code Verifier for PKCE
+    request.setupCodeVerifier();
+
+    if (this._configuration) {
+      return this._popupAuthorizationHandler
+        .performAuthorizationRequest(this._configuration, request)
+        .then(({ request, response }: AuthorizationRequestResponse) => {
+          if (response !== null) {
+            let codeVerifier: string | undefined;
+            if (request.internal && request.internal.code_verifier) {
+              codeVerifier = request.internal.code_verifier;
+            }
+            return this.finishAuthorization(response.code, codeVerifier, true)
+              .then(() => this.refreshTokens())
+              .then(() => {
+                this._handlers.forEach((fn) => {
+                  fn(EventType.RENEWED, this._accessTokenResponse!);
+                });
+                console.log('All Done.');
+              });
+          }
+        });
+    } else {
+      return Promise.reject('Missing configuration');
+    }
   }
 
-  // todo type args
-  signOut(args: any) {
+  /**
+   * Signout withour redirect
+   * @param args AuthProviderSignOutProps
+   */
+  signOut(): void {
     this._accessTokenResponse = undefined;
     this._refreshToken = undefined;
   }
 
-  signoutRedirect(args: any) {
-    
+  signOutRedirect(args: AuthProviderSignOutProps): void {
+    const query = new URLSearchParams();
+    query.append('client_id', this.clientId);
+    if (this._accessTokenResponse && this._accessTokenResponse.idToken) {
+      query.append('id_token_hint', this._accessTokenResponse.idToken)
+    }
+    query.append('post_logout_redirect_uri', args.redirectUri || this._settings.signoutRedirectUri || this._settings.redirectUri);
+
+    this._accessTokenResponse = undefined;
+    this._refreshToken = undefined;
   }
 
-  private signinSilentIFrame(
-    args: {
-      redirect_uri?: string;
-      prompt?: string;
-      silentRequestTimeout?: number;
-    } = {}
+  private signInSilentIFrame(
+    args: AuthProviderSignInProps = {}
   ) {
-    //   let url = args.redirect_uri || this._settings.silentRedirectUrl || this._settings.redirectUrl;
+      const url = args.redirect_uri || this._settings.silentRedirectUri || this._settings.redirectUri;
     //   if (url === undefined) {
     //     return Promise.reject(new Error("No silent_redirect_uri configured"))
     //   }
@@ -322,7 +427,7 @@ export class AuthAdapter {
 export interface ExtendedTokenResponseJson extends TokenResponseJson {
   refresh_expires_in?: string;
   session_state?: string;
-  "not-before-policy"?: boolean;
+  'not-before-policy'?: boolean;
 }
 
 export class ExtendedOidcTokenResponse extends TokenResponse {
@@ -338,8 +443,8 @@ export class ExtendedOidcTokenResponse extends TokenResponse {
     if (response.session_state) {
       this.sessionState = response.session_state;
     }
-    if (response["not-before-policy"]) {
-      this.notBeforePolicy = response["not-before-policy"];
+    if (response['not-before-policy']) {
+      this.notBeforePolicy = response['not-before-policy'];
     }
   }
 
@@ -354,7 +459,7 @@ export class ExtendedOidcTokenResponse extends TokenResponse {
       issued_at: this.issuedAt,
       expires_in: this.expiresIn?.toString(),
       session_state: this.sessionState,
-      "not-before-policy": this.notBeforePolicy,
+      'not-before-policy': this.notBeforePolicy,
     };
   }
 
@@ -369,7 +474,7 @@ export class ExtendedOidcTokenResponse extends TokenResponse {
       this.sessionState === null
     ) {
       return Promise.reject(
-        "Missing extended OIDC (expiresIn, idToken, refreshExpiresIn or sessionState"
+        'Missing extended OIDC (expiresIn, idToken, refreshExpiresIn or sessionState',
       );
     }
     return Promise.resolve({
@@ -387,7 +492,7 @@ export class ExtendedOidcTokenResponse extends TokenResponse {
 
   isRefreshValid(buffer: number = 10 * 60 * -1): boolean {
     if (this.refreshExpiresIn) {
-      let now = nowInSeconds();
+      const now = nowInSeconds();
       return now < this.issuedAt + this.refreshExpiresIn + buffer;
     } else {
       return true;
@@ -397,26 +502,26 @@ export class ExtendedOidcTokenResponse extends TokenResponse {
 
 class ExtendedTokenRequestHandler extends BaseTokenRequestHandler {
   private isExtendedTokenResponse(
-    response: ExtendedTokenResponseJson | TokenErrorJson
+    response: ExtendedTokenResponseJson | TokenErrorJson,
   ): response is ExtendedTokenResponseJson {
     return (response as TokenErrorJson).error === undefined;
   }
 
   performTokenRequest(
     configuration: AuthorizationServiceConfiguration,
-    request: TokenRequest
+    request: TokenRequest,
   ): Promise<ExtendedOidcTokenResponse> {
-    let cleaned_request = request.toStringMap();
+    const cleaned_request = request.toStringMap();
     if (request.grantType === GRANT_TYPE_REFRESH_TOKEN) {
-      delete cleaned_request["redirect_uri"]
+      delete cleaned_request['redirect_uri'];
     }
-    let tokenResponse = this.requestor.xhr<
+    const tokenResponse = this.requestor.xhr<
       ExtendedTokenResponseJson | TokenErrorJson
     >({
       url: configuration.tokenEndpoint,
-      method: "POST",
-      dataType: "json", // adding implicit dataType
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      method: 'POST',
+      dataType: 'json', // adding implicit dataType
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       data: this.utils.stringify(request.toStringMap()),
     });
 
@@ -425,7 +530,7 @@ class ExtendedTokenRequestHandler extends BaseTokenRequestHandler {
         return new ExtendedOidcTokenResponse(response);
       } else {
         return Promise.reject<ExtendedOidcTokenResponse>(
-          new AppAuthError(response.error, new TokenError(response))
+          new AppAuthError(response.error, new TokenError(response)),
         );
       }
     });

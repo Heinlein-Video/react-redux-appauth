@@ -1,9 +1,8 @@
-import { AuthorizationNotifier, AuthorizationRequest, AuthorizationRequestHandler, AuthorizationServiceConfiguration, GRANT_TYPE_AUTHORIZATION_CODE, StringMap, TokenRequest, TokenRequestHandler } from '@openid/appauth';
 import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 import { Provider, useDispatch, useSelector } from 'react-redux';
 import { AuthAdapter, EventType, ExtendedOidcTokenResponse } from './AuthAdapter';
-import { AuthAdapterProps, AuthContextProps, AuthProviderProps } from './AuthInterface';
-import { expired, loaded, logged_out, selectIsAuthed, selectIsLoading, token_updated } from './AuthSlice';
+import { AuthAdapterProps, AuthContextProps, AuthProviderProps, AuthProviderSignInProps, AuthProviderSignOutProps } from './AuthInterface';
+import { expired, loaded, loading, logged_out, selectIsAuthed, selectIsLoading, token_updated } from './AuthSlice';
 
 
 /**
@@ -46,7 +45,7 @@ export const AuthProvider: FC<AuthProviderProps> = ({
 const AuthProviderContext: FC<AuthProviderProps> = ({
   store,
   children,
-  autoSignIn = true,
+  autoSignIn = false,
   onBeforeSignIn,
   onSignIn,
   onSignOut,
@@ -66,10 +65,9 @@ const AuthProviderContext: FC<AuthProviderProps> = ({
   };
 
   const signInPopupHooks = async (): Promise<void> => {
-    const userFromPopup = await adapter.signinPopup({});
-  //   setUserData(userFromPopup);
-    onSignIn && onSignIn(userFromPopup);
-  //   await userManager.signinPopupCallback();
+    dispatch(loading())
+    await adapter.signInPopup({});
+    onSignIn && onSignIn();
   };
 
   const isMountedRef = useRef(true);
@@ -79,35 +77,32 @@ const AuthProviderContext: FC<AuthProviderProps> = ({
     };
   }, []);
 
-  const getUser = useCallback(async (): Promise<void> => {
+  const init = useCallback(async (): Promise<void> => {
     /**
      * Check if the user is returning back from OIDC. Todo retry a couple of times before dispatching an error state
      */
     if (hasCodeInUrl(location)) {
       await adapter.fetchServiceConfiguration().then(() => {
-        console.log("Test")
         adapter.completeAuthorizationRequestIfPossible();
       });
-      // setUserData(user);
       return;
     }
 
-    // const user = await userManager!.getUser();
-    if ((isAuthed) && autoSignIn) {
+    if ((!isAuthed) && autoSignIn) {
       onBeforeSignIn && onBeforeSignIn();
-      // userManager.signinRedirect();
+
     } else if (isMountedRef.current) {
-      // setUserData(user);
       dispatch(loaded())
+      onSignIn && onSignIn()
     }
     return;
   }, [location, adapter, dispatch, isAuthed, autoSignIn, onBeforeSignIn, onSignIn]);
 
   useEffect(() => {
-    getUser();
-  }, [getUser]);
+    init();
+  }, [init]);
 
-  const register = useCallback(async () => {
+  const registerHandler = useCallback(async () => {
     // for refreshing react state when new state is available in e.g. session storage
     const updateState = async (type: EventType, token_response: ExtendedOidcTokenResponse | undefined) => {
       switch (type) {
@@ -117,7 +112,6 @@ const AuthProviderContext: FC<AuthProviderProps> = ({
         case EventType.EXPIRED:
           isMountedRef.current && dispatch(expired());
       }
-      
     };
     await adapter.fetchServiceConfiguration();
     adapter.addHandler(updateState);
@@ -126,23 +120,27 @@ const AuthProviderContext: FC<AuthProviderProps> = ({
   }, [adapter, dispatch]);
 
   useEffect(() => {
-    register()
-  }, [register]);
+    registerHandler()
+  }, [registerHandler]);
 
   return (<Provider store={store}>
     <AuthContext.Provider value={{
-      signIn: async (args?: {}): Promise<void> => {
-        await adapter.signinRedirect(args);
+      signIn: async (args: AuthProviderSignInProps = {}): Promise<void> => {
+        await adapter.signInRedirect(args);
       },
       signInPopup: async (): Promise<void> => {
         await signInPopupHooks();
       },
-      signOut: async (): Promise<void> => {
-        await adapter.signOut({});
+      signOut: async (args: AuthProviderSignOutProps = {}): Promise<void> => {
+        if (args.signoutRedirect) {
+          await adapter.signOutRedirect(args);
+        } else {
+          await adapter.signOut();
+        }
         await signOutHooks();
       },
-      signOutRedirect: async (args?: {}): Promise<void> => {
-        await adapter!.signoutRedirect(args);
+      signOutRedirect: async (args: AuthProviderSignOutProps = {}): Promise<void> => {
+        await adapter.signOutRedirect(args);
         await signOutHooks();
       },
       isLoading,

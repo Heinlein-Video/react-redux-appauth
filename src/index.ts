@@ -1,5 +1,3 @@
-import { authSlice } from './AuthSlice';
-
 export * from './AuthProvider';
 export { useAuth } from './useAuth';
 export * from './AuthSlice';
