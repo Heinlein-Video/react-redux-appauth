@@ -1,0 +1,46 @@
+{
+  "name": "@heinlein-video/react-redux-appauth",
+  "version": "1.0.3",
+  "description": "A React Wrapper around @openid/appauth-js for use with redux",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "author": "Rudi Floren (r.floren@heinlein-video.de)",
+  "license": "AGPL3",
+  "private": false,
+  "devDependencies": {
+    "@reduxjs/toolkit": "^1.6.0",
+    "@types/react": "^17.0.11",
+    "@typescript-eslint/eslint-plugin": "^4.28.2",
+    "@typescript-eslint/parser": "^4.28.2",
+    "eslint": "^7.30.0",
+    "eslint-config-prettier": "^8.3.0",
+    "eslint-plugin-react": "^7.24.0",
+    "prettier": "^2.3.2",
+    "react-redux": "^7.2.4",
+    "typescript": "^4.3.4"
+  },
+  "peerDependencies": {
+    "@reduxjs/toolkit": "^1.6.0",
+    "react": "^17.0.2",
+    "react-redux": "^7.2.4",
+    "redux": "^4.1.0"
+  },
+  "dependencies": {
+    "@openid/appauth": "^1.3.1",
+    "@types/lodash": "^4.14.170",
+    "lodash": "^4.17.21"
+  },
+  "files": [
+    "/build"
+  ],
+  "scripts": {
+    "start": "node build/index.js",
+    "build": "tsc -p tsconfig.release.json",
+    "test": "jest --coverage src --passWithNoTests",
+    "lint": "eslint . --ext .ts,.tsx",
+    "prepack": "yarn build"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
