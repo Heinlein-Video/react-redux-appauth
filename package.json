@@ -1,6 +1,6 @@
 {
   "name": "@heinlein-video/react-redux-appauth",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "A React Wrapper around @openid/appauth-js for use with redux",
   "main": "build/src/index.js",
   "types": "build/src/index.d.ts",
