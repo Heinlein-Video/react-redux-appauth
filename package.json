@@ -1,11 +1,11 @@
 {
-  "name": "@r.floren/react-redux-appauth",
+  "name": "@heinlein-video/react-redux-appauth",
   "version": "1.0.3",
   "description": "A React Wrapper around @openid/appauth-js for use with redux",
   "main": "build/index.js",
   "types": "build/index.d.ts",
   "author": "Rudi Floren (r.floren@heinlein-video.de)",
-  "license": "MIT",
+  "license": "AGPL3",
   "private": false,
   "devDependencies": {
     "@reduxjs/toolkit": "^1.6.0",
