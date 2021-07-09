@@ -2,8 +2,9 @@
   "name": "@heinlein-video/react-redux-appauth",
   "version": "1.0.4",
   "description": "A React Wrapper around @openid/appauth-js for use with redux",
-  "main": "build/src/index.js",
-  "types": "build/src/index.d.ts",
+  "main": "build/cjs/index.js",
+  "module": "build/esm/index.js",
+  "types": "build/cjs/index.d.ts",
   "author": "Rudi Floren (r.floren@heinlein-video.de)",
   "license": "AGPL-3.0-or-later",
   "private": false,
@@ -34,12 +35,13 @@
     "/build"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.release.json",
+    "build": "tsc -p tsconfig.release.json && tsc -p tsconfig.release.cjs.json",
     "test": "jest --coverage src --passWithNoTests",
     "lint": "eslint . --ext .ts,.tsx",
     "prepack": "yarn build"
   },
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "sideEffects": false
 }
