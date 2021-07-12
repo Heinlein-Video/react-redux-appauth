@@ -42,7 +42,7 @@ const AUTHORIZATION_REQUEST_HANDLE_KEY =
   'appauth_current_authorization_request';
 
 interface PopupRequesthandlerParams extends PopupParams {
-  timeoutInSeconds?: number
+  timeoutInSeconds?: number;
 }
 /**
  * Represents an AuthorizationRequestHandler which uses a standard
@@ -130,7 +130,7 @@ export class PopupRequestHandler extends AuthorizationRequestHandler {
             authorizationServiceConfigurationKey(handle),
           ),
         ]).then(() => {
-          return Promise.reject('Failed to create / get popup');
+            return Promise.reject(new Error('Failed to create / get popup'));
         });
       }
     });
@@ -172,7 +172,8 @@ export class PopupRequestHandler extends AuthorizationRequestHandler {
                   if (shouldNotify) {
                     if (error) {
                       // get additional optional info.
-                      const errorUri = queryParams.get('error_uri') || undefined;
+                      const errorUri =
+                        queryParams.get('error_uri') || undefined;
                       const errorDescription =
                         queryParams.get('error_description') || undefined;
                       authorizationError = new AuthorizationError({

@@ -20,7 +20,10 @@ import {
   TokenResponse,
   TokenResponseJson,
 } from '@openid/appauth';
-import { AuthProviderSignInProps, AuthProviderSignOutProps } from './AuthInterface';
+import {
+  AuthProviderSignInProps,
+  AuthProviderSignOutProps,
+} from './AuthInterface';
 import { IResponse } from './AuthSlice';
 import { PopupWindow } from './helper/PopupHelper';
 import { PopupRequestHandler } from './helper/PopupRequestHandler';
@@ -45,6 +48,9 @@ export interface AuthSettings {
   signoutRedirectUri?: string;
 }
 
+/**
+ * AuthAdapter, a wrapper around appauth-js to provide a OIDC library in one class.
+ */
 export class AuthAdapter {
   private _notifier: AuthorizationNotifier;
   private _authorizationHandler: AuthorizationRequestHandler;
@@ -82,6 +88,7 @@ export class AuthAdapter {
       this._popupNotifier,
     );
 
+    // interval that checks if a token is about to expire
     this._timerHandle = setInterval(() => this.checkExpire(), TIMER_DURATION);
 
     this._settings = settings;
@@ -112,8 +119,8 @@ export class AuthAdapter {
   }
 
   /**
-   * Check if one of the two tokens is about to expire.
-   * For now we always auto renew the token
+   * Check if one of the two tokens is about to expire
+   * For now we always auto renew the token.
    */
   checkExpire(): void {
     if (this._accessTokenResponse) {
@@ -133,13 +140,20 @@ export class AuthAdapter {
       }
     }
   }
-
+  /**
+   * Adds a eventHandler to the list of handlers
+   * @param fn eventHandler
+   */
   addHandler(
     fn: (type: EventType, token_response: ExtendedOidcTokenResponse) => void,
   ): void {
     this._handlers.push(fn);
   }
 
+  /**
+   * Remove eventHandler from the list of handlers
+   * @param fnToRemove eventHandler
+   */
   removeHandler(
     fnToRemove: (
       type: EventType,
@@ -157,6 +171,7 @@ export class AuthAdapter {
       this.authority,
       fetcher,
     ).then((response) => {
+      // Todo use a logger with variable loglevels here
       console.log('Fetched service configuration', response);
       this._configuration = response;
     });
@@ -172,8 +187,8 @@ export class AuthAdapter {
 
   /**
    * Exchange code at token endpoint to get access_token, etc.
-   * @param code
-   * @param codeVerifier
+   * @param code The code returned by the OIDC IP
+   * @param codeVerifier Used code verifier
    * @returns
    */
   private finishAuthorization(
@@ -182,8 +197,7 @@ export class AuthAdapter {
     popup = false,
   ): Promise<void> {
     if (!this._configuration) {
-      console.log('Unknown service configuration');
-      return Promise.reject('Unknown service configuration');
+      return Promise.reject(new Error('Unknown service configuration'));
     }
 
     const extras: StringMap = {};
@@ -207,6 +221,7 @@ export class AuthAdapter {
     return this._tokenHandler
       .performTokenRequest(this._configuration, request)
       .then((response) => {
+        // Todo use a logger with variable loglevels here
         console.log(`Access Token is ${response.accessToken}`);
         console.log(`Refresh Token is ${response.refreshToken}`);
         this._refreshToken = response.refreshToken;
@@ -218,16 +233,14 @@ export class AuthAdapter {
 
   /**
    * Refresh Token
-   * @returns
+   * @returns Promise<access_token as string>
    */
   refreshTokens(): Promise<string> {
     if (!this._configuration) {
-      console.log('Unknown service configuration');
-      return Promise.reject('Unknown service configuration');
+      return Promise.reject(new Error('Unknown service configuration'));
     }
     if (!this._refreshToken) {
-      console.log('Missing refreshToken.');
-      return Promise.resolve('Missing refreshToken.');
+      return Promise.reject(new Error('Missing refreshToken.'));
     }
     if (this._accessTokenResponse && this._accessTokenResponse.isValid()) {
       // do nothing
@@ -257,26 +270,22 @@ export class AuthAdapter {
    * @returns
    */
   completeAuthorizationRequestIfPossible(): Promise<void> {
-    console.log('auth if possible');
     // Check if we have a current login attempt.
     return this._localStorage
       .getItem('appauth_current_authorization_request')
       .then((handle) => {
-        console.log(handle);
         if (handle) {
           return this._localStorage
             .getItem(`${handle}_appauth_authorization_request`)
             .then((result) => JSON.parse(result!))
             .then((json) => new AuthorizationRequest(json))
             .then((request) => {
-              console.log(request);
               if (request.internal && request.internal.request_type) {
                 switch (request.internal.request_type) {
                   default:
                   case 'redirect':
                     return this._authorizationHandler.completeAuthorizationRequestIfPossible();
                   case 'popup':
-                    console.log('Calling popup completeAuth');
                     return this._popupAuthorizationHandler.completeAuthorizationRequestIfPossible();
                 }
               } else {
@@ -287,8 +296,9 @@ export class AuthAdapter {
       });
   }
 
-  // todo type args
-  signInRedirect(args?: { extras?: { response_mode?: string } }): Promise<void> {
+  signInRedirect(args?: {
+    extras?: { response_mode?: string };
+  }): Promise<void> {
     if (!args) {
       args = { extras: { response_mode: 'fragment' } };
     }
@@ -300,7 +310,6 @@ export class AuthAdapter {
       request_type: 'redirect',
     };
 
-    console.log('Starting signIn');
     // create a request
     const request = new AuthorizationRequest({
       client_id: this.clientId,
@@ -326,7 +335,6 @@ export class AuthAdapter {
     }
   }
 
-  // todo type args
   signInSilent(args: AuthProviderSignInProps): void {
     if (this._refreshToken) {
       this.refreshTokens();
@@ -335,7 +343,6 @@ export class AuthAdapter {
     }
   }
 
-  // todo type args
   signInPopup(args: AuthProviderSignInProps): Promise<void> {
     if (!args) {
       args = { extras: { response_mode: 'fragment' } };
@@ -387,7 +394,7 @@ export class AuthAdapter {
   }
 
   /**
-   * Signout withour redirect
+   * Signout with our redirect
    * @param args AuthProviderSignOutProps
    */
   signOut(): void {
@@ -399,27 +406,26 @@ export class AuthAdapter {
     const query = new URLSearchParams();
     query.append('client_id', this.clientId);
     if (this._accessTokenResponse && this._accessTokenResponse.idToken) {
-      query.append('id_token_hint', this._accessTokenResponse.idToken)
+      query.append('id_token_hint', this._accessTokenResponse.idToken);
     }
-    query.append('post_logout_redirect_uri', args.redirectUri || this._settings.signoutRedirectUri || this._settings.redirectUri);
+    query.append(
+      'post_logout_redirect_uri',
+      args.redirectUri ||
+        this._settings.signoutRedirectUri ||
+        this._settings.redirectUri,
+    );
 
     this._accessTokenResponse = undefined;
     this._refreshToken = undefined;
   }
 
-  private signInSilentIFrame(
-    args: AuthProviderSignInProps = {}
-  ) {
-      const url = args.redirect_uri || this._settings.silentRedirectUri || this._settings.redirectUri;
-    //   if (url === undefined) {
-    //     return Promise.reject(new Error("No silent_redirect_uri configured"))
-    //   }
-    //   args.redirect_uri = url;
-    //   args.prompt = args.prompt || "none";
-    //   return this.startSignin(args, this._iFrameHelper, {
-    //     startUrl: url,
-    //     silentRequestTimeout: args.silentRequestTimeout || this._settings.silentRequestTimeout
-    // })
+  private signInSilentIFrame(args: AuthProviderSignInProps = {}) {
+    const url =
+      args.redirect_uri ||
+      this._settings.silentRedirectUri ||
+      this._settings.redirectUri;
+    console.error('Unimplemented');
+    //  unimplemented
   }
 }
 

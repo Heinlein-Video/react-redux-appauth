@@ -9,7 +9,11 @@ import {
   AuthorizationRequest,
   AuthorizationResponse,
 } from '@openid/appauth';
-import { NavigateParams, Navigate, DEFAULT_AUTHORIZE_TIMEOUT_IN_SECONDS } from '.';
+import {
+  NavigateParams,
+  Navigate,
+  DEFAULT_AUTHORIZE_TIMEOUT_IN_SECONDS,
+} from '.';
 import { AuthPostMessage } from '../AuthInterface';
 
 export interface PopupParams {
@@ -17,7 +21,7 @@ export interface PopupParams {
   popupWindowFeatures?: string;
   id?: string;
   url?: string;
-  popupClosedTimerInMilliseconds?: number
+  popupClosedTimerInMilliseconds?: number;
 }
 
 interface CustomWindow extends Window {
@@ -33,16 +37,19 @@ interface CustomWindow extends Window {
 const CheckForPopupClosedInterval = 500;
 const DefaultPopupFeatures =
   'location=no,toolbar=no,width=500,height=500,left=100,top=100;';
-//const DefaultPopupFeatures = 'location=no,toolbar=no,width=500,height=500,left=100,top=100;resizable=yes';
 
 const DefaultPopupTarget = '_blank';
 
+/**
+ * A Helper class implementing navigate to open a popup and to notify the parent window via postMessage.
+ */
 export class PopupWindow implements Navigate {
   private _promise: Promise<AuthorizationResponse>;
   private _resolve: (value: AuthorizationResponse) => void = () => {};
   private _reject: (reason?: Error | AuthorizationError) => void = () => {};
   private _popup: CustomWindow | null;
   private _checkForPopupClosedTimer: number | undefined;
+  private _popupEventListener: ((e: MessageEvent) => void) | undefined;
 
   constructor(params?: PopupParams) {
     this._promise = new Promise((resolve, reject) => {
@@ -64,47 +71,55 @@ export class PopupWindow implements Navigate {
     return this._promise;
   }
 
-  navigate(params: NavigateParams & PopupParams): Promise<AuthorizationResponse> {
-    let popupEventListener: (e: MessageEvent) => void;
+  /**
+   * Navigates the popup to the url given in Params
+   * @param params NavigateParams & PopupParams
+   * @returns
+   */
+  navigate(
+    params: NavigateParams & PopupParams,
+  ): Promise<AuthorizationResponse> {
     if (!this._popup) {
-      this._reject(new Error('PopupWindow.navigate: Error opening popup window'));
+      this._reject(
+        new Error('PopupWindow.navigate: Error opening popup window'),
+      );
     } else if (!params || !params.url) {
       this._reject(new Error('PopupWindow.navigate: no url provided'));
       this._reject(new Error('No url provided'));
     } else {
-
       this._checkForPopupClosedTimer = window.setInterval(() => {
         if (!this._popup || this._popup.closed) {
-          this.cleanup(popupEventListener);
+          this.cleanup();
           clearTimeout(timeoutId);
           this._reject(new Error('Popup window closed'));
         }
-      },
-      params.popupClosedTimerInMilliseconds || CheckForPopupClosedInterval);
+      }, params.popupClosedTimerInMilliseconds || CheckForPopupClosedInterval);
 
       const timeoutId = setTimeout(() => {
         clearInterval(this._checkForPopupClosedTimer);
-        this.cleanup(popupEventListener);
+        this.cleanup();
         this._reject(new Error('Popup Timeout'));
       }, (params.timeoutInSeconds || DEFAULT_AUTHORIZE_TIMEOUT_IN_SECONDS) * 1000);
 
-      popupEventListener = (e: MessageEvent) => {
+      this._popupEventListener = (e: MessageEvent) => {
         if (!e.data || e.data.type !== 'authorization_response') {
           return;
         }
 
-        this.cleanup(popupEventListener);
+        this.cleanup();
         if (e.data.response) {
-          return this._resolve(e.data.response)
+          return this._resolve(e.data.response);
         }
         if (e.data.error) {
-          return this._reject(e.data.error)
+          return this._reject(e.data.error);
         }
-        return this._reject(new Error('OIDC: Both response and error where empty'))
-        
-      }
-      window.addEventListener('message', popupEventListener);
-      
+        return this._reject(
+          new Error('OIDC: Both response and error where empty'),
+        );
+      };
+
+      window.addEventListener('message', this._popupEventListener);
+
       this._popup.focus();
       this._popup.window.location.replace(params.url);
     }
@@ -112,12 +127,35 @@ export class PopupWindow implements Navigate {
     return this.promise;
   }
 
-  private cleanup(listener: (e: MessageEvent) => void) {
+  /**
+   * Cleans up timers, handlers and closes the popup
+   */
+  private cleanup() {
     if (this._checkForPopupClosedTimer !== null) {
       window.clearInterval(this._checkForPopupClosedTimer);
     }
     this._checkForPopupClosedTimer = undefined;
-    window.removeEventListener('message', listener, false);
+    if (this._popupEventListener) {
+      window.removeEventListener('message', this._popupEventListener, false);
+    }
+
+    if (this._popup) {
+      this._popup.close();
+    }
+    this._popup = null;
+  }
+
+  /**
+   * Aborts the current Popup try.
+   */
+  abort(): void {
+    if (this._checkForPopupClosedTimer !== null) {
+      window.clearInterval(this._checkForPopupClosedTimer);
+    }
+    this._checkForPopupClosedTimer = undefined;
+    if (this._popupEventListener) {
+      window.removeEventListener('message', this._popupEventListener, false);
+    }
 
     if (this._popup) {
       this._popup.close();
@@ -130,10 +168,17 @@ export class PopupWindow implements Navigate {
     response: AuthorizationResponse | null,
     error: AuthorizationError | null,
   ): void {
-    console.log('notify called');
     if (window.opener && window != window.opener) {
       // Send a postMessage with the response to the opening window (only if it was on the same domain)
-      window.opener.postMessage({type: "authorization_response", request: request, response: response, error: error} as AuthPostMessage, window.location.origin);
+      window.opener.postMessage(
+        {
+          type: 'authorization_response',
+          request: request,
+          response: response,
+          error: error,
+        } as AuthPostMessage,
+        window.location.origin,
+      );
     }
   }
 }

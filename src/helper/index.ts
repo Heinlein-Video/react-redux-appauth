@@ -1,7 +1,7 @@
 export { PopupWindow } from './PopupHelper';
 
 export interface NavigateParams {
-  timeoutInSeconds?: number
+  timeoutInSeconds?: number;
 }
 export interface Navigate {
   navigate(params: NavigateParams): void;
