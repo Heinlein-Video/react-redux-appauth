@@ -1,7 +1,7 @@
 # React AppAuth
 ## About
 Opinionated React component (AuthProvider) to provide OpenID Connect and OAuth2 protocol support. Has hooks :tada:
-Heavily inspired by [oidc-react](https://github.com/bjerkio/oidc-react) but without the unmaintained oidc-client-js and redux-oidc.
+Heavily inspired by [oidc-react](https://github.com/bjerkio/oidc-react) but without redux-oidc and the (as of now) unmaintained oidc-client-js.
 
 Based on @openid/appauth-js.
 
