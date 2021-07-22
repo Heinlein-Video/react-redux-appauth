@@ -3,10 +3,10 @@ import {
   AuthorizationRequest,
   AuthorizationResponse,
   StringMap,
-} from "@openid/appauth";
-import { Store } from "@reduxjs/toolkit";
-import { AuthAdapter } from "./AuthAdapter";
-import { AuthSlice } from "./AuthSlice";
+} from '@openid/appauth';
+import { Store } from '@reduxjs/toolkit';
+import { AuthAdapter } from './AuthAdapter';
+import { AuthSlice } from './AuthSlice';
 
 export interface AuthContextProps {
   /**
@@ -25,14 +25,6 @@ export interface AuthContextProps {
    *
    */
   signOutRedirect: (args?: AuthProviderSignOutProps) => Promise<void>;
-  //  /**
-  //   * See [UserManager](https://github.com/IdentityModel/oidc-client-js/wiki#usermanager) for more details.
-  //   */
-  //  userManager: UserManager;
-  //  /**
-  //   * See [User](https://github.com/IdentityModel/oidc-client-js/wiki#user) for more details.
-  //   */
-  //  userData?: User | null;
   /**
    * Auth state: True until the library has been initialized.
    */
@@ -196,17 +188,17 @@ export interface AuthProviderSignOutProps {
    * ```
    */
   signoutRedirect?: boolean;
-  redirectUri?: string
+  redirectUri?: string;
 }
 export interface AuthProviderSignInProps {
   timeoutInSeconds?: number;
   redirect_uri?: string;
-  extras?: {response_mode?: string}
+  extras?: { response_mode?: string };
   prompt?: string;
 }
 
 export interface AuthPostMessage {
-  type: "authorization_response"
+  type: 'authorization_response';
   request: AuthorizationRequest;
   response: AuthorizationResponse | null;
   error: AuthorizationError | null;

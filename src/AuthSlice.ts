@@ -72,16 +72,19 @@ export const selectIsLoading = (state: { auth: AuthSlice }): boolean =>
   state.auth.isLoading;
 export const selectIsAuthed = (state: { auth: AuthSlice }): boolean =>
   state.auth.isAuthed;
-export const selectAccessToken = (state: { auth: AuthSlice }): string|undefined =>
-  state.auth.access_token;
-export const selectIdToken = (state: { auth: AuthSlice }): string|undefined =>
+export const selectAccessToken = (state: {
+  auth: AuthSlice;
+}): string | undefined => state.auth.access_token;
+export const selectIdToken = (state: { auth: AuthSlice }): string | undefined =>
   state.auth.id_token;
-export const selectRefreshToken = (state: { auth: AuthSlice }): string|undefined =>
-  state.auth.refresh_token;
-export const selectAccessTokenExpire = (state: { auth: AuthSlice }): UnixTimeStamp|undefined =>
-  state.auth.access_token_expire;
-export const selectRefreshTokenExpire = (state: { auth: AuthSlice }): UnixTimeStamp|undefined =>
-  state.auth.refresh_token_expire;
-
+export const selectRefreshToken = (state: {
+  auth: AuthSlice;
+}): string | undefined => state.auth.refresh_token;
+export const selectAccessTokenExpire = (state: {
+  auth: AuthSlice;
+}): UnixTimeStamp | undefined => state.auth.access_token_expire;
+export const selectRefreshTokenExpire = (state: {
+  auth: AuthSlice;
+}): UnixTimeStamp | undefined => state.auth.refresh_token_expire;
 
 export default authSlice.reducer;

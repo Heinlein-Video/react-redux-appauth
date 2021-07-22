@@ -1,17 +1,3 @@
-/*
- * Copyright 2017 Google Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
- * in compliance with the License. You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software distributed under the
- * License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
- * express or implied. See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 import {
   AuthorizationError,
   AuthorizationRequest,
@@ -42,7 +28,7 @@ const AUTHORIZATION_REQUEST_HANDLE_KEY =
   'appauth_current_authorization_request';
 
 interface PopupRequesthandlerParams extends PopupParams {
-  timeoutInSeconds?: number
+  timeoutInSeconds?: number;
 }
 /**
  * Represents an AuthorizationRequestHandler which uses a standard
@@ -77,6 +63,7 @@ export class PopupRequestHandler extends AuthorizationRequestHandler {
     configuration: AuthorizationServiceConfiguration,
     request: AuthorizationRequest,
   ): Promise<AuthorizationRequestResponse> {
+    this._popup = new PopupWindow(this._params);
     const handle = this.crypto.generateRandom(10);
 
     // before you make request, persist all request related data in local storage.
@@ -97,15 +84,32 @@ export class PopupRequestHandler extends AuthorizationRequestHandler {
       ),
     ]);
 
-    return persisted.then(() => {
-      this._popup = new PopupWindow(this._params);
-      if (this._popup) {
-        this._popup.navigate({
-          url: this.buildRequestUrl(configuration, request),
-          id: request.state,
-        });
-        // The Popup notifies the opener and then the WindowPopup promise resolves.
-        return this._popup.promise.then((authorizationResponse) => {
+    return persisted
+      .then(() => {
+        if (this._popup) {
+          this._popup.navigate({
+            url: this.buildRequestUrl(configuration, request),
+            id: request.state,
+          });
+          // The Popup notifies the opener and then the WindowPopup promise resolves.
+          return this._popup.promise.then((authorizationResponse) => {
+            return Promise.all([
+              this.storageBackend.removeItem(AUTHORIZATION_REQUEST_HANDLE_KEY),
+              this.storageBackend.removeItem(authorizationRequestKey(handle)),
+              this.storageBackend.removeItem(
+                authorizationServiceConfigurationKey(handle),
+              ),
+            ]).then(() => {
+              console.log('Delivering authorization response');
+              return {
+                request: request,
+                response: authorizationResponse,
+                error: null,
+              } as AuthorizationRequestResponse;
+            });
+          });
+        } else {
+          // Cleanup
           return Promise.all([
             this.storageBackend.removeItem(AUTHORIZATION_REQUEST_HANDLE_KEY),
             this.storageBackend.removeItem(authorizationRequestKey(handle)),
@@ -113,27 +117,18 @@ export class PopupRequestHandler extends AuthorizationRequestHandler {
               authorizationServiceConfigurationKey(handle),
             ),
           ]).then(() => {
-            console.log('Delivering authorization response');
-            return {
-              request: request,
-              response: authorizationResponse,
-              error: null,
-            } as AuthorizationRequestResponse;
+            return Promise.reject(new Error('Failed to create / get popup'));
           });
-        });
-      } else {
-        // Cleanup
-        return Promise.all([
-          this.storageBackend.removeItem(AUTHORIZATION_REQUEST_HANDLE_KEY),
-          this.storageBackend.removeItem(authorizationRequestKey(handle)),
-          this.storageBackend.removeItem(
-            authorizationServiceConfigurationKey(handle),
-          ),
-        ]).then(() => {
-          return Promise.reject('Failed to create / get popup');
-        });
-      }
-    });
+        }
+      })
+      .catch(() => {
+        if (this._popup) {
+          this._popup.abort();
+        }
+        return Promise.reject(
+          new Error('Failed to store OIDC request in local-storage'),
+        );
+      });
   }
 
   /**
@@ -149,8 +144,6 @@ export class PopupRequestHandler extends AuthorizationRequestHandler {
           return (
             this.storageBackend
               .getItem(authorizationRequestKey(handle))
-              // requires a corresponding instance of result
-              // TODO(rahulrav@): check for inconsitent state here
               .then((result) => JSON.parse(result!))
               .then((json) => new AuthorizationRequest(json))
               .then((request) => {
@@ -172,7 +165,8 @@ export class PopupRequestHandler extends AuthorizationRequestHandler {
                   if (shouldNotify) {
                     if (error) {
                       // get additional optional info.
-                      const errorUri = queryParams.get('error_uri') || undefined;
+                      const errorUri =
+                        queryParams.get('error_uri') || undefined;
                       const errorDescription =
                         queryParams.get('error_description') || undefined;
                       authorizationError = new AuthorizationError({
