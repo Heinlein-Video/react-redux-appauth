@@ -124,7 +124,7 @@ export class AuthAdapter {
    */
   checkExpire(): void {
     if (this._accessTokenResponse) {
-      if (!this._accessTokenResponse.isValid()) {
+      if (!this._accessTokenResponse.isValid(-60)) {
         this.refreshTokens().then(() => {
           this._handlers.forEach((fn) => {
             fn(EventType.RENEWED, this._accessTokenResponse!);
