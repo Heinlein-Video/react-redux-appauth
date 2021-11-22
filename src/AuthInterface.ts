@@ -29,6 +29,8 @@ export interface AuthContextProps {
    * Auth state: True until the library has been initialized.
    */
   isLoading: boolean;
+
+  signinCallback: () => Promise<void>;
 }
 
 export interface AuthProviderProps {
@@ -56,6 +58,10 @@ export interface AuthProviderProps {
    * The redirect URI of your client application to receive a response from the OIDC/OAuth2 provider when completing a background sign-in refresh.
    */
   silentRedirectUri?: string;
+  /**
+   * Whether the provider should automatically perform a background sign-in on mount.
+   */
+  silentSignin?: boolean;
   /**
    * A space-delimited list of permissions that the application requires.
    */
@@ -193,8 +199,7 @@ export interface AuthProviderSignOutProps {
 export interface AuthProviderSignInProps {
   timeoutInSeconds?: number;
   redirect_uri?: string;
-  extras?: { response_mode?: string };
-  prompt?: string;
+  extras?: { response_mode?: string; prompt?: string };
 }
 
 export interface AuthPostMessage {
