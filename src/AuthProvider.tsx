@@ -1,16 +1,33 @@
 import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 import { Provider, useDispatch, useSelector } from 'react-redux';
-import { AuthAdapter, EventType, ExtendedOidcTokenResponse } from './AuthAdapter';
-import { AuthAdapterProps, AuthContextProps, AuthProviderProps, AuthProviderSignInProps, AuthProviderSignOutProps } from './AuthInterface';
-import { expired, loaded, loading, logged_out, selectIsAuthed, selectIsLoading, token_updated } from './AuthSlice';
-
+import {
+  AuthAdapter,
+  EventType,
+  ExtendedOidcTokenResponse,
+} from './AuthAdapter';
+import {
+  AuthAdapterProps,
+  AuthContextProps,
+  AuthProviderProps,
+  AuthProviderSignInProps,
+  AuthProviderSignOutProps,
+} from './AuthInterface';
+import {
+  expired,
+  loaded,
+  loading,
+  logged_out,
+  selectIsAuthed,
+  selectIsLoading,
+  token_updated,
+} from './AuthSlice';
 
 /**
  * @private
  * @hidden
  * @param location
  */
- export const hasCodeInUrl = (location: Location): boolean => {
+export const hasCodeInUrl = (location: Location): boolean => {
   const searchParams = new URLSearchParams(location.search);
   const hashParams = new URLSearchParams(location.hash.replace('#', '?'));
 
@@ -18,34 +35,44 @@ import { expired, loaded, loading, logged_out, selectIsAuthed, selectIsLoading, 
     searchParams.get('code') ||
       searchParams.get('id_token') ||
       searchParams.get('session_state') ||
+      searchParams.get('state') ||
+      searchParams.get('error') ||
       hashParams.get('code') ||
       hashParams.get('id_token') ||
-      hashParams.get('session_state'),
+      hashParams.get('session_state') ||
+      hashParams.get('state') ||
+      hashParams.get('error'),
   );
 };
 
-
 const initAdapter = (props: AuthAdapterProps): AuthAdapter => {
   if (props.authAdapter) return props.authAdapter;
-  return new AuthAdapter(
-    props
-  )
-}
+  return new AuthAdapter(props);
+};
 
-export const AuthContext = React.createContext<AuthContextProps | undefined>(undefined);
+export const AuthContext = React.createContext<AuthContextProps | undefined>(
+  undefined,
+);
 export const AuthProvider: FC<AuthProviderProps> = ({
   store,
   children,
-...props
+  ...props
 }) => {
-  return (<Provider store={store}><AuthProviderContext store={store} {...props}>{children}</AuthProviderContext></Provider>)
-}
+  return (
+    <Provider store={store}>
+      <AuthProviderContext store={store} {...props}>
+        {children}
+      </AuthProviderContext>
+    </Provider>
+  );
+};
 
 // Todo add an onError callback
 const AuthProviderContext: FC<AuthProviderProps> = ({
   store,
   children,
   autoSignIn = false,
+  silentSignin = false,
   onBeforeSignIn,
   onSignIn,
   onSignOut,
@@ -60,12 +87,12 @@ const AuthProviderContext: FC<AuthProviderProps> = ({
 
   const signOutHooks = async (): Promise<void> => {
     // setUserData(null);
-    dispatch(logged_out())
+    dispatch(logged_out());
     onSignOut && onSignOut();
   };
 
   const signInPopupHooks = async (): Promise<void> => {
-    dispatch(loading())
+    dispatch(loading());
     await adapter.signInPopup({});
     onSignIn && onSignIn();
   };
@@ -78,36 +105,83 @@ const AuthProviderContext: FC<AuthProviderProps> = ({
   }, []);
 
   const init = useCallback(async (): Promise<void> => {
-    /**
-     * Check if the user is returning back from OIDC. Todo retry a couple of times before dispatching an error state
-     */
-    if (hasCodeInUrl(location)) {
-      await adapter.fetchServiceConfiguration().then(() => {
-        adapter.completeAuthorizationRequestIfPossible();
-      });
-      return;
-    }
-
-    if ((!isAuthed) && autoSignIn) {
+    if (!isAuthed && autoSignIn) {
       onBeforeSignIn && onBeforeSignIn();
-
     } else if (isMountedRef.current) {
-      dispatch(loaded())
-      onSignIn && onSignIn()
+      onSignIn && onSignIn();
+      dispatch(loaded());
     }
     return;
-  }, [location, adapter, dispatch, isAuthed, autoSignIn, onBeforeSignIn, onSignIn]);
+  }, [
+    location,
+    adapter,
+    dispatch,
+    isAuthed,
+    autoSignIn,
+    onBeforeSignIn,
+    onSignIn,
+  ]);
 
   useEffect(() => {
     init();
   }, [init]);
 
+  useEffect(() => {
+    if (silentSignin === true && window.frameElement === null) {
+      dispatch(loading());
+      adapter
+        .fetchServiceConfiguration()
+        .then(async () => {
+          await adapter.signInSilent({});
+          dispatch(loaded());
+          onSignIn && onSignIn();
+        })
+        .catch((e) => {
+          dispatch(loaded());
+          if (e.error !== 'login_required') {
+            console.log(e);
+          }
+        });
+    }
+  }, []);
+
+  const signinCallback = () => {
+    return new Promise<void>((resolve, reject) => {
+      if (hasCodeInUrl(location)) {
+        const timeout = setTimeout(() => {
+          reject('waitForLogin timeout');
+        }, 2000);
+
+        adapter
+          .fetchServiceConfiguration()
+          .then(() => {
+            adapter.completeAuthorizationRequestIfPossible().then(() => {
+              clearTimeout(timeout);
+              resolve();
+            });
+          })
+          .catch((e) => {
+            clearTimeout(timeout);
+            reject('Login failed: ' + e);
+          });
+      } else {
+        reject('No login flow present');
+      }
+    });
+  };
+
   const registerHandler = useCallback(async () => {
     // for refreshing react state when new state is available in e.g. session storage
-    const updateState = async (type: EventType, token_response: ExtendedOidcTokenResponse | undefined) => {
+    const updateState = async (
+      type: EventType,
+      token_response: ExtendedOidcTokenResponse | undefined,
+    ) => {
       switch (type) {
         case EventType.RENEWED:
-          isMountedRef.current && token_response!.toReduxState().then((value) => dispatch(token_updated(value)));
+          isMountedRef.current &&
+            token_response!
+              .toReduxState()
+              .then((value) => dispatch(token_updated(value)));
           break;
         case EventType.EXPIRED:
           isMountedRef.current && dispatch(expired());
@@ -120,34 +194,41 @@ const AuthProviderContext: FC<AuthProviderProps> = ({
   }, [adapter, dispatch]);
 
   useEffect(() => {
-    registerHandler()
+    registerHandler();
   }, [registerHandler]);
 
-  return (<Provider store={store}>
-    <AuthContext.Provider value={{
-      signIn: async (args: AuthProviderSignInProps = {}): Promise<void> => {
-        await adapter.signInRedirect(args);
-      },
-      signInPopup: async (): Promise<void> => {
-        await signInPopupHooks();
-      },
-      signOut: async (args: AuthProviderSignOutProps = {}): Promise<void> => {
-        if (args.signoutRedirect) {
-          await adapter.signOutRedirect(args);
-        } else {
-          await adapter.signOut();
-        }
-        await signOutHooks();
-      },
-      signOutRedirect: async (args: AuthProviderSignOutProps = {}): Promise<void> => {
-        await adapter.signOutRedirect(args);
-        await signOutHooks();
-      },
-      isLoading,
-    }}
-    >
-      {children}
-    </AuthContext.Provider>
-    </Provider> 
-  )
-}
+  return (
+    <Provider store={store}>
+      <AuthContext.Provider
+        value={{
+          signinCallback,
+          signIn: async (args: AuthProviderSignInProps = {}): Promise<void> => {
+            await adapter.signInRedirect(args);
+          },
+          signInPopup: async (): Promise<void> => {
+            await signInPopupHooks();
+          },
+          signOut: async (
+            args: AuthProviderSignOutProps = {},
+          ): Promise<void> => {
+            if (args.signoutRedirect) {
+              await adapter.signOutRedirect(args);
+            } else {
+              await adapter.signOut();
+            }
+            await signOutHooks();
+          },
+          signOutRedirect: async (
+            args: AuthProviderSignOutProps = {},
+          ): Promise<void> => {
+            await adapter.signOutRedirect(args);
+            await signOutHooks();
+          },
+          isLoading,
+        }}
+      >
+        {children}
+      </AuthContext.Provider>
+    </Provider>
+  );
+};

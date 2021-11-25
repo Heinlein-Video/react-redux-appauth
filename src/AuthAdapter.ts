@@ -25,6 +25,8 @@ import {
   AuthProviderSignOutProps,
 } from './AuthInterface';
 import { IResponse } from './AuthSlice';
+import { IFrameWindow } from './helper/IFrameHelper';
+import { IFrameRequestHandler } from './helper/IFrameRequestHandler';
 import { PopupWindow } from './helper/PopupHelper';
 import { PopupRequestHandler } from './helper/PopupRequestHandler';
 import { UnixTimeStamp } from './util';
@@ -72,11 +74,18 @@ export class AuthAdapter {
   private _popupAuthorizationHandler: PopupRequestHandler;
   private _popupNotifier: AuthorizationNotifier;
 
+  private _iframeAuthorizationHandler: IFrameRequestHandler;
+  private _iframeNotifier: AuthorizationNotifier;
+
   constructor(settings: AuthSettings) {
     this._notifier = new AuthorizationNotifier();
     this._popupNotifier = new AuthorizationNotifier();
+    this._iframeNotifier = new AuthorizationNotifier();
     this._authorizationHandler = new RedirectRequestHandler(this._localStorage);
     this._popupAuthorizationHandler = new PopupRequestHandler(
+      this._localStorage,
+    );
+    this._iframeAuthorizationHandler = new IFrameRequestHandler(
       this._localStorage,
     );
     const fetchRequestor = new FetchRequestor();
@@ -86,6 +95,9 @@ export class AuthAdapter {
     this._authorizationHandler.setAuthorizationNotifier(this._notifier);
     this._popupAuthorizationHandler.setAuthorizationNotifier(
       this._popupNotifier,
+    );
+    this._iframeAuthorizationHandler.setAuthorizationNotifier(
+      this._iframeNotifier,
     );
 
     // interval that checks if a token is about to expire
@@ -116,6 +128,12 @@ export class AuthAdapter {
     this._popupNotifier.setAuthorizationListener((request, response, error) => {
       PopupWindow.notifyOpener(request, response, error);
     });
+
+    this._iframeNotifier.setAuthorizationListener(
+      (request, response, error) => {
+        IFrameWindow.notifyOpener(request, response, error);
+      },
+    );
   }
 
   /**
@@ -287,6 +305,8 @@ export class AuthAdapter {
                     return this._authorizationHandler.completeAuthorizationRequestIfPossible();
                   case 'popup':
                     return this._popupAuthorizationHandler.completeAuthorizationRequestIfPossible();
+                  case 'iframe':
+                    return this._iframeAuthorizationHandler.completeAuthorizationRequestIfPossible();
                 }
               } else {
                 return this._authorizationHandler.completeAuthorizationRequestIfPossible();
@@ -335,11 +355,11 @@ export class AuthAdapter {
     }
   }
 
-  signInSilent(args: AuthProviderSignInProps): void {
+  signInSilent(args: AuthProviderSignInProps): Promise<void | string> {
     if (this._refreshToken) {
-      this.refreshTokens();
+      return this.refreshTokens();
     } else {
-      this.signInSilentIFrame(args);
+      return this.signInSilentIFrame(args);
     }
   }
 
@@ -347,7 +367,7 @@ export class AuthAdapter {
     if (!args) {
       args = { extras: { response_mode: 'fragment' } };
     }
-    if (args && !args.extras) {
+    if (!args.extras) {
       args.extras = { response_mode: 'fragment' };
     }
 
@@ -424,8 +444,59 @@ export class AuthAdapter {
       args.redirect_uri ||
       this._settings.silentRedirectUri ||
       this._settings.redirectUri;
-    console.error('Unimplemented');
-    //  unimplemented
+
+    if (!args) {
+      args = { extras: { response_mode: 'fragment' } };
+    }
+    if (!args.extras) {
+      args.extras = { response_mode: 'fragment' };
+    }
+
+    args.extras.prompt = args.extras.prompt || 'none';
+
+    const internal = {
+      request_type: 'iframe',
+    };
+
+    const request = new AuthorizationRequest({
+      client_id: this.clientId,
+      redirect_uri: url,
+      scope: this._settings.scope,
+      response_type: AuthorizationRequest.RESPONSE_TYPE_CODE,
+      state: undefined,
+      extras: args && args.extras ? args.extras : {},
+      internal: internal,
+    });
+
+    // Set Code Verifier for PKCE
+    request.setupCodeVerifier();
+
+    if (this._configuration) {
+      return this._iframeAuthorizationHandler
+        .performAuthorizationRequest(this._configuration, request)
+        .then(({ request, response, error }: AuthorizationRequestResponse) => {
+          if (response !== null) {
+            let codeVerifier: string | undefined;
+            if (request.internal && request.internal.code_verifier) {
+              codeVerifier = request.internal.code_verifier;
+            }
+            return this.finishAuthorization(response.code, codeVerifier, true)
+              .then(() => this.refreshTokens())
+              .then(() => {
+                this._handlers.forEach((fn) => {
+                  fn(EventType.RENEWED, this._accessTokenResponse!);
+                });
+                console.log('All Done.');
+              });
+          } else if (error !== null) {
+            if (error.error === 'login_required') {
+              return Promise.reject('login_required');
+            }
+          }
+        });
+    } else {
+      return Promise.reject(new Error('Missing configuration'));
+    }
   }
 }
 
