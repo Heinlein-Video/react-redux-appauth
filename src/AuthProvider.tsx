@@ -127,7 +127,11 @@ const AuthProviderContext: FC<AuthProviderProps> = ({
   }, [init]);
 
   useEffect(() => {
-    if (silentSignin === true && window.frameElement === null) {
+    if (
+      silentSignin === true &&
+      window.frameElement === null &&
+      !hasCodeInUrl(location)
+    ) {
       dispatch(loading());
       adapter
         .fetchServiceConfiguration()
