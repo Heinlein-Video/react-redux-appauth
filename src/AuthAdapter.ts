@@ -34,6 +34,7 @@ import { UnixTimeStamp } from './util';
 export enum EventType {
   EXPIRED,
   RENEWED,
+  REFRESH_ERROR,
 }
 
 const TIMER_DURATION = 5 * 1000; // 5s in ms
@@ -143,18 +144,30 @@ export class AuthAdapter {
   checkExpire(): void {
     if (this._accessTokenResponse) {
       if (!this._accessTokenResponse.isValid(-60)) {
-        this.refreshTokens().then(() => {
-          this._handlers.forEach((fn) => {
-            fn(EventType.RENEWED, this._accessTokenResponse!);
+        this.refreshTokens()
+          .then(() => {
+            this._handlers.forEach((fn) => {
+              fn(EventType.RENEWED, this._accessTokenResponse!);
+            });
+          })
+          .catch((error) => {
+            this._handlers.forEach((fn) => {
+              fn(EventType.REFRESH_ERROR, error!);
+            });
           });
-        });
       }
       if (!this._accessTokenResponse.isRefreshValid()) {
-        this.refreshTokens().then(() => {
-          this._handlers.forEach((fn) => {
-            fn(EventType.RENEWED, this._accessTokenResponse!);
+        this.refreshTokens()
+          .then(() => {
+            this._handlers.forEach((fn) => {
+              fn(EventType.RENEWED, this._accessTokenResponse!);
+            });
+          })
+          .catch((error) => {
+            this._handlers.forEach((fn) => {
+              fn(EventType.REFRESH_ERROR, error!);
+            });
           });
-        });
       }
     }
   }
@@ -193,6 +206,14 @@ export class AuthAdapter {
       console.log('Fetched service configuration', response);
       this._configuration = response;
     });
+  }
+
+  maybeFetchServiceConfiguration(): Promise<void> {
+    if (this._configuration === undefined) {
+      return this.fetchServiceConfiguration();
+    } else {
+      return Promise.resolve();
+    }
   }
 
   get clientId(): string {
@@ -351,7 +372,7 @@ export class AuthAdapter {
       );
       return Promise.resolve();
     } else {
-      return Promise.reject('Missing configuration');
+      return Promise.reject(new Error('Unknown service configuration'));
     }
   }
 
@@ -409,7 +430,7 @@ export class AuthAdapter {
           }
         });
     } else {
-      return Promise.reject('Missing configuration');
+      return Promise.reject(new Error('Unknown service configuration'));
     }
   }
 
@@ -490,12 +511,12 @@ export class AuthAdapter {
               });
           } else if (error !== null) {
             if (error.error === 'login_required') {
-              return Promise.reject('login_required');
+              return Promise.reject(new Error('Login Required'));
             }
           }
         });
     } else {
-      return Promise.reject(new Error('Missing configuration'));
+      return Promise.reject(new Error('Unknown service configuration'));
     }
   }
 }

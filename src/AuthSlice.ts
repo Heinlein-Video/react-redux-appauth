@@ -15,6 +15,7 @@ export interface AuthSlice {
   refresh_token_expire?: UnixTimeStamp;
   scope?: string;
   sess_state?: string;
+  silent_renew_error?: string;
 }
 
 export interface IResponse {
@@ -47,7 +48,9 @@ export const authSlice = createSlice({
     loading: (state) => {
       state.isLoading = true;
     },
-    silent_renew_error: (state) => {},
+    silent_renew_error: (state, action: PayloadAction<Error>) => {
+      state.silent_renew_error = action.payload.message;
+    },
     loaded: (state) => {
       state.isLoading = false;
     },

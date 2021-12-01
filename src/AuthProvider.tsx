@@ -207,7 +207,9 @@ const AuthProviderContext: FC<AuthProviderProps> = ({
         value={{
           signinCallback,
           signIn: async (args: AuthProviderSignInProps = {}): Promise<void> => {
-            await adapter.signInRedirect(args);
+            await adapter
+              .maybeFetchServiceConfiguration()
+              .then(() => adapter.signInRedirect(args));
           },
           signInPopup: async (): Promise<void> => {
             await signInPopupHooks();
@@ -216,16 +218,22 @@ const AuthProviderContext: FC<AuthProviderProps> = ({
             args: AuthProviderSignOutProps = {},
           ): Promise<void> => {
             if (args.signoutRedirect) {
-              await adapter.signOutRedirect(args);
+              await adapter
+                .maybeFetchServiceConfiguration()
+                .then(() => adapter.signOutRedirect(args));
             } else {
-              await adapter.signOut();
+              await adapter
+                .maybeFetchServiceConfiguration()
+                .then(() => adapter.signOut());
             }
             await signOutHooks();
           },
           signOutRedirect: async (
             args: AuthProviderSignOutProps = {},
           ): Promise<void> => {
-            await adapter.signOutRedirect(args);
+            await adapter
+              .maybeFetchServiceConfiguration()
+              .then(() => adapter.signOutRedirect(args));
             await signOutHooks();
           },
           isLoading,
