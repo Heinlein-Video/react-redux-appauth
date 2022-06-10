@@ -194,7 +194,7 @@ export interface AuthProviderSignOutProps {
    * ```
    */
   signoutRedirect?: boolean;
-  redirectUri?: string;
+  postLogoutRedirectUri?: string;
 }
 export interface AuthProviderSignInProps {
   timeoutInSeconds?: number;

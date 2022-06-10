@@ -451,7 +451,7 @@ export class AuthAdapter {
     }
     query.append(
       'post_logout_redirect_uri',
-      args.redirectUri ||
+      args.postLogoutRedirectUri ||
         this._settings.signoutRedirectUri ||
         this._settings.redirectUri,
     );
